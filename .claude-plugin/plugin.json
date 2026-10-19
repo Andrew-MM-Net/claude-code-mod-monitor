@@ -1,5 +1,5 @@
 {
-  "name": "session-pulse",
+  "name": "mod-monitor",
   "version": "0.1.0",
   "description": "Subscription limit meters above the prompt, plus a live 'what's happening' feed and a short AI summary of each turn.",
   "author": { "name": "Andrew" },

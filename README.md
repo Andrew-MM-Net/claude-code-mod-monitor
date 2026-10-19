@@ -109,7 +109,7 @@ hooks/hooks.json     lists the hook module to load
 hooks/register.tsx   the hooks: the /monitor command, the card, the pane and the turn summary
 hooks/lib.ts         pure helpers (meters, countdowns, tool-call descriptions, the summary prompt)
 types/index.d.ts     the mod's state types
-tests/pulse.test.ts  tests
+tests/monitor.test.ts tests
 ```
 
 From the repo folder:
@@ -120,5 +120,3 @@ claude plugin test .
 ```
 
 `.claude-plugin/types/` holds generated Claude Code type definitions for editor support. It's ignored by git.
-
-The internal plugin name is `session-pulse` (in `.claude-plugin/plugin.json`, `types/index.d.ts`, `hooks/register.tsx` and the tests); it shows up everywhere else as "monitor".

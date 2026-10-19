@@ -1,3 +1,4 @@
 node_modules/
 .claude-plugin/types/
 *.log
+update-global.ps1

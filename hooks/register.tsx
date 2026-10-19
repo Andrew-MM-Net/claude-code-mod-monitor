@@ -22,7 +22,7 @@ import {
 } from './lib'
 import type { Pace, Sample } from './lib'
 
-const PANE = 'session-pulse'
+const PANE = 'mod-monitor'
 // The card's edges, and the darker groove the meters fill along.
 const EDGE = '#4a5263'
 const TRACK = '#333a47'
@@ -52,14 +52,14 @@ const meterSegs = (percent: number, width: number, color: Color, mark: number | 
   }, [])
 }
 
-const meter = atom({ plugin: 'session-pulse', key: 'meter' } as const, null)
-const now = atom({ plugin: 'session-pulse', key: 'now' } as const, null)
-const feed = atom({ plugin: 'session-pulse', key: 'feed' } as const, [])
-const goal = atom({ plugin: 'session-pulse', key: 'goal' } as const, null)
-const summary = atom({ plugin: 'session-pulse', key: 'summary' } as const, null)
-const isSummarizing = atom({ plugin: 'session-pulse', key: 'isSummarizing' } as const, false)
-const isSummaryOn = atom({ plugin: 'session-pulse', key: 'isSummaryOn' } as const, true)
-const tick = atom({ plugin: 'session-pulse', key: 'tick' } as const, 0)
+const meter = atom({ plugin: 'mod-monitor', key: 'meter' } as const, null)
+const now = atom({ plugin: 'mod-monitor', key: 'now' } as const, null)
+const feed = atom({ plugin: 'mod-monitor', key: 'feed' } as const, [])
+const goal = atom({ plugin: 'mod-monitor', key: 'goal' } as const, null)
+const summary = atom({ plugin: 'mod-monitor', key: 'summary' } as const, null)
+const isSummarizing = atom({ plugin: 'mod-monitor', key: 'isSummarizing' } as const, false)
+const isSummaryOn = atom({ plugin: 'mod-monitor', key: 'isSummaryOn' } as const, true)
+const tick = atom({ plugin: 'mod-monitor', key: 'tick' } as const, 0)
 
 const toMeter = (u: SessionUsage | SessionMeasureInput): Meter => ({
   limits: u.rateLimits.map(l => ({ kind: l.kind, percent: l.percentUsed, resetsAt: l.resetsAt })),

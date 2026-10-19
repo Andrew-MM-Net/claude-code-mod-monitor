@@ -87,12 +87,12 @@ test('a tool call shows in the activity pane and as "now" in the band', async ($
   for (const surface of ['terminal', 'desktop'] as const) {
     await $.tool.call({ tool: 'Read', file_path: 'src/cave.js' } as never)
 
-    const pane = await $.ui.mount({ plugin: 'session-pulse', surface, component: 'Pane', requestId: 'session-pulse', props: PANE_PROPS })
+    const pane = await $.ui.mount({ plugin: 'mod-monitor', surface, component: 'Pane', requestId: 'mod-monitor', props: PANE_PROPS })
     expect(await pane.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()
     expect(await pane.find({ type: 'Text', text: /opus-5-5/ })).toBeUndefined()
     await pane.unmount()
 
-    const band = await $.ui.mount({ plugin: 'session-pulse', surface, component: 'AbovePrompt', props: BAND_PROPS })
+    const band = await $.ui.mount({ plugin: 'mod-monitor', surface, component: 'AbovePrompt', props: BAND_PROPS })
     expect(await band.find({ type: 'Text', text: /waiting for first reply/ })).toBeDefined()
     expect(await band.find({ type: 'Text', text: 'opus-5-5' })).toBeDefined()
     expect(await band.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()

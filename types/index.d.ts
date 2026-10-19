@@ -4,7 +4,7 @@ export type Activity = { id: string; at: number; text: string; state: 'running' 
 
 declare module 'claude-code' {
   interface PluginState {
-    'session-pulse': {
+    'mod-monitor': {
       meter: Meter | null
       now: string | null
       feed: Activity[]
