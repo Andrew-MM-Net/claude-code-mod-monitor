@@ -20,6 +20,7 @@ A Claude Code mod that keeps an eye on your session: subscription limit meters, 
 - **Cost**: the session's cost so far and, after five minutes, an hourly rate.
 - **Session time**, and a **✓ / ✗ tally** of the tool calls in the current turn.
 - **5h forecast**: when the 5-hour limit is climbing, roughly when it will be full at the current pace (only shown if that's before it resets).
+- **The mod's own AI use**, last: how many Haiku turn summaries it has made this session and their tokens in and out (`✦ 3× 12k in · 310 out`). It appears after the first summary, and it's the first stat dropped when the card is too narrow.
 - **Status line**: what Claude is doing right now while it works, and the AI summary of the last turn once it's done.
 - The current **model** in the top edge.
 

@@ -49,6 +49,7 @@ describe('helpers', () => {
   })
 
   test('token counts and the 5h forecast', async () => {
+    expect(tokens(310)).toBe('310')
     expect(tokens(62_400)).toBe('62k')
     expect(tokens(1_000_000)).toBe('1.0M')
     const min = 60_000
