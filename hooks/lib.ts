@@ -111,9 +111,9 @@ export const elapsed = (ms: number): string => {
   return secs < 60 ? `${secs}s` : `${Math.floor(secs / 60)}m${String(secs % 60).padStart(2, '0')}s`
 }
 
-// A token count as the band shows it: "310", "62k", "1.2M".
+// A token count as the band shows it: "62k", "1.2M".
 export const tokens = (n: number): string =>
-  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : n < 1000 ? String(n) : `${Math.round(n / 1000)}k`
+  n >= 1_000_000 ? `${(n / 1_000_000).toFixed(1)}M` : `${Math.round(n / 1000)}k`
 
 export type Sample = { at: number; percent: number }
 

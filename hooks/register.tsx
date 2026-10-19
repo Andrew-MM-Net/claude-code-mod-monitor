@@ -59,7 +59,6 @@ const goal = atom({ plugin: 'mod-monitor', key: 'goal' } as const, null)
 const summary = atom({ plugin: 'mod-monitor', key: 'summary' } as const, null)
 const isSummarizing = atom({ plugin: 'mod-monitor', key: 'isSummarizing' } as const, false)
 const isSummaryOn = atom({ plugin: 'mod-monitor', key: 'isSummaryOn' } as const, true)
-const aiUsage = atom({ plugin: 'mod-monitor', key: 'aiUsage' } as const, { calls: 0, input: 0, output: 0 })
 const tick = atom({ plugin: 'mod-monitor', key: 'tick' } as const, 0)
 
 const toMeter = (u: SessionUsage | SessionMeasureInput): Meter => ({
@@ -159,14 +158,6 @@ export const register: Register = on => {
               maxTokens: 120,
               effort: 'low',
             })
-            if (reply.isAnswered) {
-              const u = reply.usage
-              await update($, aiUsage, a => ({
-                calls: a.calls + 1,
-                input: a.input + u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens,
-                output: a.output + u.output_tokens,
-              }))
-            }
             if (reply.isAnswered && reply.text.trim()) {
               await update($, summary, () => clip(reply.text, 300))
             }
@@ -269,22 +260,10 @@ export const register: Register = on => {
             SEP,
           ]
 
-    // The mod's own Haiku summary calls this session: count, then tokens in and out.
-    const own = await read($, aiUsage)
-    const ai: Seg[] = own.calls
-      ? [
-          { text: ' ✦ ', color: 'permission' },
-          { text: `${own.calls}×`, bold: true },
-          { text: ` ${tokens(own.input)} in · ${tokens(own.output)} out`, dim: true },
-          SEP,
-        ]
-      : []
-
     // The richest row that fits; a narrow band falls back to the plain one with shrinking meters.
     const wide = limitSegs(12)
     const stats = [
-      [...wide, ...ctxRich, ...costRich, ...session, ...tally, ...pace, ...ai],
-      [...wide, ...ctxRich, ...costRich, ...session, ...tally, ...ai],
+      [...wide, ...ctxRich, ...costRich, ...session, ...tally, ...pace],
       [...wide, ...ctxRich, ...costRich, ...session, ...tally],
       [...wide, ...ctxRich, ...costRich, ...session],
       [...wide, ...ctxRich, ...costPlain],

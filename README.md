@@ -7,11 +7,11 @@ A Claude Code mod that keeps an eye on your session: subscription limit meters, 
 ### The card above the prompt
 
 ```
-╭─ monitor ──────────────────────────────────────────────────────────────────────────────────── opus-5-5 ──╮
-│ 5h ██████┃▌░░░  52% ● 2h13m │ 7d ███┃░░░░░░  28% ▼ 3d4h │ ctx ██░░ 31% │ $1.84 │ ✦ 3× 12k in · 310 out │ │
-├──────────────────────────────────────────────────────────────────────────────────────────────────────────┤
-│ ● Running: Run tests  1m05s                                                                              │
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────╯
+╭─ monitor ───────────────────────────────────────────────────────────── opus-5-5 ──╮
+│ 5h ██████┃▌░░░  52% ● 2h13m │ 7d ███┃░░░░░░  28% ▼ 3d4h │ ctx ██░░ 31% │ $1.84 │   │
+├────────────────────────────────────────────────────────────────────────────────────┤
+│ ● Running: Run tests  1m05s                                                        │
+╰────────────────────────────────────────────────────────────────────────────────────╯
 ```
 
 - **Limit meters** for the 5-hour and 7-day windows (and a spend limit, if you have one), coloured green / amber / red at 70% and 90%, with a countdown to each reset.
@@ -20,7 +20,6 @@ A Claude Code mod that keeps an eye on your session: subscription limit meters, 
 - **Cost**: the session's cost so far and, after five minutes, an hourly rate.
 - **Session time**, and a **✓ / ✗ tally** of the tool calls in the current turn.
 - **5h forecast**: when the 5-hour limit is climbing, roughly when it will be full at the current pace (only shown if that's before it resets).
-- **The mod's own AI use**, last: how many Haiku turn summaries it has made this session and their tokens in and out (`✦ 3× 12k in · 310 out`). It appears after the first summary, and it's the first stat dropped when the card is too narrow.
 - **Status line**: what Claude is doing right now while it works, and the AI summary of the last turn once it's done.
 - The current **model** in the top edge.
 
@@ -44,7 +43,7 @@ The pane opens on its own when a session starts.
 
 ## A note on the turn summary
 
-After each turn, the mod sends a short request to **Haiku** containing your prompt (cut to 400 characters), the list of tool-call descriptions from the turn, and the start of Claude's reply (cut to 1,500 characters). It uses your normal Claude Code account, so it counts toward your usage like any other request, though it's small (at most 120 output tokens). The `✦` item at the end of the card counts these calls and their tokens for the session, so you can see what they've cost. Use `/monitor off` if you'd rather not have it. The prompt it sends is in [`hooks/lib.ts`](hooks/lib.ts).
+After each turn, the mod sends a short request to **Haiku** containing your prompt (cut to 400 characters), the list of tool-call descriptions from the turn, and the start of Claude's reply (cut to 1,500 characters). It uses your normal Claude Code account, so it counts toward your usage like any other request, though it's small (at most 120 output tokens). Use `/monitor off` if you'd rather not have it. The prompt it sends is in [`hooks/lib.ts`](hooks/lib.ts).
 
 Nothing else leaves your machine, and the mod doesn't write any files.
 
