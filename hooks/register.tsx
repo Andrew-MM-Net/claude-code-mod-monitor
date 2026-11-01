@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { Color, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
+import type { Color, Elements, EngineInterface, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
 
 import type { Activity, Meter } from '../types'
 import {
@@ -11,11 +11,14 @@ import {
   expectedPercent,
   fill,
   forecast,
+  HEX,
   levelColor,
+  meterSvg,
   limitLabel,
   modelLabel,
   paceOf,
   rule,
+  sparkSvg,
   SUMMARY_SYSTEM,
   summaryPrompt,
   tokens,
@@ -23,6 +26,8 @@ import {
 import type { Pace, Sample } from './lib'
 
 const PANE = 'mod-monitor'
+// The desktop band's hover group: the 5h chip and the detail it reveals.
+const FIVE_SCOPE = 'mod-monitor-5h'
 // The card's edges, and the darker groove the meters fill along.
 const EDGE = '#4a5263'
 const TRACK = '#333a47'
@@ -69,10 +74,23 @@ const toMeter = (u: SessionUsage | SessionMeasureInput): Meter => ({
   costUsd: u.cost?.usd,
 })
 
+// Starts tracking: the first usage reading and a redraw once a minute, so the
+// reset countdowns move. At the top of the file, as any function handed $ must be.
+function startTracking($: EngineInterface, onUsage: (u: SessionUsage, at: number) => void) {
+  void $.session.usage().then(async u => {
+    onUsage(u, await $.clock.now())
+    await update($, meter, () => toMeter(u))
+  })
+  $.clock.every(60_000, () => {
+    void update($, tick, n => n + 1)
+  })
+}
+
 export const register: Register = on => {
-  // Only run in the terminal CLI (claude.exe), not the desktop app or other hosts.
-  // Set once in session.start: the REPL's terminal surface is there from the start.
+  // Runs in the terminal CLI (claude.exe), with the card and pane, and in the
+  // desktop app, with a band of its own and no pane; idle anywhere else (-p).
   let active = false
+  let inTerminal = false
   let turnStart = 0
   let startedAt = 0
   // Recent 5h readings, for the "full in" forecast.
@@ -86,24 +104,36 @@ export const register: Register = on => {
     fiveHour = [...fiveHour.filter(s => at - s.at <= 60 * 60_000), { at, percent }]
   }
 
-  on('session.start', async ($, e, next) => {
-    active = (await $.session.surfaces()).includes('terminal')
-    if (!active) return next(e)
-    await $.command.register({
-      name: 'monitor',
-      description: 'Open the monitor pane. "/monitor off" or "/monitor on" turns the AI turn summary off or on.',
-    })
-    void $.session.usage().then(async u => {
-      startedAt = u.startedAt
-      sample(toMeter(u), await $.clock.now())
-      await update($, meter, () => toMeter(u))
-    })
-    // Redraw once a minute so the reset countdowns move.
-    $.clock.every(60_000, () => {
-      void update($, tick, n => n + 1)
-    })
-    void $.ui.open({ id: PANE, title: 'Monitor' })
+  const onUsage = (u: SessionUsage, at: number) => {
+    startedAt = u.startedAt
+    sample(toMeter(u), at)
+  }
 
+  on('session.start', async ($, e, next) => {
+    const surfaces = await $.session.surfaces()
+    inTerminal = surfaces.includes('terminal')
+    if (!inTerminal && !surfaces.includes('desktop')) return next(e)
+    if (!active) {
+      active = true
+      startTracking($, onUsage)
+    }
+    // The pane and its command are the terminal's; the desktop has its own sidebar.
+    if (inTerminal) {
+      await $.command.register({
+        name: 'monitor',
+        description: 'Open the monitor pane. "/monitor off" or "/monitor on" turns the AI turn summary off or on.',
+      })
+      void $.ui.open({ id: PANE, title: 'Monitor' })
+    }
+    return next(e)
+  })
+
+  // The desktop app may attach after the session starts.
+  on('session.attach', { surface: 'desktop' }, async ($, e, next) => {
+    if (!active) {
+      active = true
+      startTracking($, onUsage)
+    }
     return next(e)
   })
 
@@ -178,8 +208,172 @@ export const register: Register = on => {
     return next(e)
   })
 
+  // The desktop's band: real borders, SVG meters and a hover detail for the 5h
+  // limit, in place of the terminal's hand-drawn card, which only lines up in a
+  // monospaced font.
+  type BandData = {
+    m: Meter | null
+    doing: string | null
+    said: string | null
+    model: string
+    clock: number
+    isWorking: boolean
+    isSummaryOn: boolean
+    steps: number
+    failed: number
+    onToggleSummaries: () => void
+  }
+  const desktopBand = (els: Elements['desktop'], d: BandData) => {
+    const { Box, Text, Svg, Button } = els
+    const { m, clock } = d
+    const limits = m?.limits ?? []
+    const five = limits.find(l => l.kind === 'five_hour')
+    const fiveResetsIn = five?.resetsAt ? Date.parse(five.resetsAt) - clock : undefined
+    const eta = five ? forecast(fiveHour, clock, fiveResetsIn) : null
+    const ran = startedAt > 0 ? clock - startedAt : 0
+    const pct = m?.contextPercent
+    const usd = m?.costUsd
+
+    const chip = (l: (typeof limits)[number]) => {
+      const resetsIn = l.resetsAt ? Date.parse(l.resetsAt) - clock : undefined
+      const expected = expectedPercent(l.kind, resetsIn)
+      const pace = expected === null ? null : PACE[paceOf(l.percent, expected)]
+      const level = levelColor(l.percent)
+      const label = limitLabel(l.kind)
+      const percent = Math.round(l.percent)
+      return (
+        <Box
+          key={`limit-${l.kind}`}
+          flexDirection="row"
+          alignItems="center"
+          gap="xs"
+          hover={l.kind === 'five_hour' ? { scope: FIVE_SCOPE } : undefined}
+        >
+          <Text dimColor size="footnote">{label}</Text>
+          <Svg source={meterSvg(l.percent, 88, HEX[level], expected)} alt={`${label} limit ${percent}% used`} width={88} height={12} />
+          <Text color={level} weight="semibold" size="footnote" tabular>{`${percent}%`}</Text>
+          {pace && <Text color={pace.color} size="footnote">{pace.glyph}</Text>}
+          {resetsIn !== undefined && <Text dimColor size="footnote" tabular>{countdown(resetsIn)}</Text>}
+        </Box>
+      )
+    }
+
+    // Shown above the meters while the pointer is on the 5h chip. In the flow
+    // rather than floating, since the band clips anything drawn outside it.
+    const fiveDetail = () => {
+      if (!five) return null
+      const expected = expectedPercent(five.kind, fiveResetsIn)
+      const diff = expected === null ? null : Math.round(five.percent - expected)
+      const spark = sparkSvg(fiveHour, clock, 120, 20, HEX[levelColor(five.percent)])
+      return (
+        <Box display="none" hover={{ scope: FIVE_SCOPE, display: 'flex' }} flexDirection="row" flexWrap="wrap" alignItems="center" columnGap="md" rowGap="xs">
+          <Text size="footnote" weight="semibold">5-hour limit</Text>
+          {spark && <Svg source={spark} alt="5-hour usage over the last hour" width={120} height={20} />}
+          {diff !== null && (
+            <Text size="footnote">
+              <Text color={diff > 5 ? 'error' : diff < -5 ? 'suggestion' : 'success'}>
+                {diff > 5 ? `▲ ${diff} pts ahead` : diff < -5 ? `▼ ${-diff} pts behind` : '● on pace'}
+              </Text>
+              <Text dimColor>{diff > 5 || diff < -5 ? ' of an even burn' : ' with an even burn'}</Text>
+            </Text>
+          )}
+          {eta !== null && (
+            <Text size="footnote">
+              <Text dimColor>full in </Text>
+              <Text color="warning" weight="semibold">{eta === 0 ? 'now' : `~${countdown(eta)}`}</Text>
+              <Text dimColor> at this pace</Text>
+            </Text>
+          )}
+          {fiveResetsIn !== undefined && <Text dimColor size="footnote">{`resets in ${countdown(fiveResetsIn)}`}</Text>}
+        </Box>
+      )
+    }
+
+    const toggle = (
+      <Button
+        key="summaries"
+        plain
+        dimColor
+        label={d.isSummaryOn ? 'Summaries on' : 'Summaries off'}
+        onPress={d.onToggleSummaries}
+      />
+    )
+
+    // The bottom line: what's happening now, the turn's summary, or the forecast.
+    const tail = turnStart > 0 ? elapsed(clock - turnStart) : ''
+    const status =
+      d.isWorking && d.doing ? (
+        <Box flexDirection="row" alignItems="center" gap="sm">
+          <Text color="claude">●</Text>
+          <Box flexGrow={1} flexShrink={1}>
+            <Text size="footnote" wrap="truncate-end">{d.doing}</Text>
+          </Box>
+          {tail && <Text dimColor size="footnote" tabular>{tail}</Text>}
+        </Box>
+      ) : (
+        <Box flexDirection="row" alignItems="flex-start" gap="sm">
+          {!d.isWorking && d.said && <Text color="success" weight="semibold">✓</Text>}
+          <Box flexGrow={1} flexShrink={1}>
+            {!d.isWorking && d.said ? (
+              <Text size="footnote" dimColor wrap="wrap">{d.said}</Text>
+            ) : eta !== null ? (
+                <Text size="footnote">
+                  <Text dimColor>5h full in </Text>
+                  <Text color="warning" weight="semibold">{eta === 0 ? 'now' : `~${countdown(eta)}`}</Text>
+                  <Text dimColor> at this pace</Text>
+                </Text>
+            ) : (
+              <Text size="footnote" dimColor>{d.isWorking ? 'Working…' : 'Ready'}</Text>
+            )}
+          </Box>
+          {toggle}
+        </Box>
+      )
+
+    return (
+      <Box flexDirection="column" width="100%" borderStyle="round" borderColor="promptBorder" paddingX="md" paddingY="sm" gap="sm">
+        {fiveDetail()}
+        <Box flexDirection="row" flexWrap="wrap" alignItems="center" columnGap="lg" rowGap="xs">
+          {limits.length === 0 ? <Text dimColor size="footnote">limits: waiting for first reply</Text> : limits.map(chip)}
+          {pct !== undefined && (
+            <Box flexDirection="row" alignItems="center" gap="xs">
+              <Text dimColor size="footnote">ctx</Text>
+              <Svg source={meterSvg(pct, 56, pct >= 70 ? HEX[levelColor(pct)] : HEX.permission, null)} alt={`context ${pct}% full`} width={56} height={12} />
+              <Text color={pct >= 70 ? levelColor(pct) : 'permission'} weight="semibold" size="footnote" tabular>{`${pct}%`}</Text>
+              {m?.contextTokens !== undefined && m.contextWindow ? (
+                <Text dimColor size="footnote">{`${tokens(m.contextTokens)} / ${tokens(m.contextWindow)}`}</Text>
+              ) : null}
+            </Box>
+          )}
+          {usd !== undefined && (
+            <Text size="footnote">
+              <Text weight="semibold">{`$${usd.toFixed(2)}`}</Text>
+              {ran >= 5 * 60_000 && <Text dimColor>{` ≈ $${(usd / (ran / 3_600_000)).toFixed(2)}/h`}</Text>}
+            </Text>
+          )}
+          {ran > 0 && (
+            <Text size="footnote" tabular>
+              <Text dimColor>◷ </Text>
+              {countdown(ran)}
+            </Text>
+          )}
+          {d.steps > 0 && (
+            <Text size="footnote">
+              <Text color="success">{`✓ ${d.steps - d.failed}`}</Text>
+              <Text color={d.failed ? 'error' : undefined} dimColor={!d.failed}>{`  ✗ ${d.failed}`}</Text>
+            </Text>
+          )}
+          <Box flexGrow={1} />
+          <Text color="success" weight="semibold" size="footnote">{d.model}</Text>
+        </Box>
+        {status}
+      </Box>
+    )
+  }
+
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (!active || e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
+    const isDesktop = e.surface === 'desktop'
+    if (!active || (e.surface !== 'terminal' && !isDesktop) || e.props.hasSurvey) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     await read($, tick)
     const m = await read($, meter)
@@ -187,6 +381,22 @@ export const register: Register = on => {
     const said = await read($, summary)
     const model = modelLabel(await $.session.model())
     const clock = await $.clock.now()
+
+    if (isDesktop) {
+      const steps = turnStart > 0 ? (await read($, feed)).filter(a => a.at >= turnStart) : []
+      return desktopBand($.ui.resolve(e) as unknown as Elements['desktop'], {
+        m,
+        doing,
+        said,
+        model,
+        clock,
+        isWorking: e.props.isWorking,
+        isSummaryOn: await read($, isSummaryOn),
+        steps: steps.length,
+        failed: steps.filter(a => a.state === 'error').length,
+        onToggleSummaries: () => void update($, isSummaryOn, isOn => !isOn),
+      })
+    }
 
     // A rounded card drawn by hand, so the title and model can sit in its top edge.
     const cols = e.props.bodyColumns
@@ -330,7 +540,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
-    if (!active || e.surface !== 'terminal') return next(e)
+    if (!active || !inTerminal || e.surface !== 'terminal') return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const asked = await read($, goal)
     const said = await read($, summary)

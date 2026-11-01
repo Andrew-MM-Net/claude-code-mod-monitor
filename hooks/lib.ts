@@ -144,3 +144,50 @@ export type Pace = 'over' | 'on' | 'under'
 // Within 5 points of the even-burn line counts as on track.
 export const paceOf = (percent: number, expected: number): Pace =>
   percent - expected > 5 ? 'over' : expected - percent > 5 ? 'under' : 'on'
+
+// Colors for the desktop's SVG drawings: they are drawn as images, so they can't
+// follow the theme's keys. Mid tones that read on both a light and a dark theme.
+export const HEX = {
+  success: '#5fae63',
+  warning: '#d9962b',
+  error: '#e0584f',
+  permission: '#9a8cf0',
+  mark: '#9a9890',
+  track: '#8a887f',
+} as const
+
+const clamp = (n: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, n))
+
+// A rounded meter as an SVG document: filled to `percent`, with a tick at `mark`
+// (where an even burn would be now) when there is one.
+export const meterSvg = (percent: number, width: number, color: string, mark: number | null): string => {
+  const done = Math.round((clamp(percent, 0, 100) / 100) * width)
+  const fillRect = done > 0 ? `<rect x="0" y="3" width="${done}" height="6" rx="3" fill="${color}"/>` : ''
+  const tick =
+    mark === null
+      ? ''
+      : `<rect x="${clamp(Math.round((mark / 100) * width) - 1, 0, width - 2)}" y="0" width="2" height="12" rx="1" fill="${HEX.mark}"/>`
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="12" viewBox="0 0 ${width} 12">` +
+    `<rect x="0" y="3" width="${width}" height="6" rx="3" fill="${HEX.track}" fill-opacity="0.3"/>${fillRect}${tick}</svg>`
+  )
+}
+
+// The last hour of readings as a sparkline SVG, or null with fewer than two.
+export const sparkSvg = (samples: readonly Sample[], now: number, width: number, height: number, color: string): string | null => {
+  if (samples.length < 2) return null
+  const hour = 60 * 60_000
+  const lo = Math.min(...samples.map(s => s.percent))
+  const span = Math.max(1, Math.max(...samples.map(s => s.percent)) - lo)
+  const points = samples
+    .map(s => {
+      const x = clamp(((s.at - (now - hour)) / hour) * width, 0, width)
+      const y = height - 2 - ((s.percent - lo) / span) * (height - 4)
+      return `${x.toFixed(1)},${y.toFixed(1)}`
+    })
+    .join(' ')
+  return (
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">` +
+    `<polyline points="${points}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/></svg>`
+  )
+}

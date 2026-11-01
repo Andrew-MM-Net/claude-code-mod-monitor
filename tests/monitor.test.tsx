@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
+import type { TestBody } from 'claude-code/testing'
 
-import { bar, countdown, describe as describeCall, elapsed, expectedPercent, fill, forecast, levelColor, limitLabel, modelLabel, paceOf, rule, tokens } from '../hooks/lib'
+import { bar, countdown, describe as describeCall, elapsed, expectedPercent, fill, forecast, levelColor, limitLabel, meterSvg, modelLabel, paceOf, rule, sparkSvg, tokens } from '../hooks/lib'
 
 const PANE_PROPS = {
   title: 'Monitor',
@@ -79,7 +80,7 @@ describe('helpers', () => {
 })
 
 // Stands in for the engine for a session drawn on `surfaces`.
-const engine = (on: Parameters<Parameters<typeof test>[1]>[1], surfaces: string[]) => {
+const engine = (on: Parameters<TestBody>[1], surfaces: string[]) => {
   mock.clock(on)
   on('session.surfaces', () => ({ value: surfaces }) as never)
   on('session.start', (_, e) => ({ cwd: e.cwd }) as never)
@@ -113,15 +114,40 @@ test('in the CLI, a tool call shows in the activity pane and as "now" in the ban
   await band.unmount()
 })
 
-test('in the desktop app, the mod stays out of the way', async ($, on) => {
+test('in the desktop app, the band is drawn its own way and there is no pane', async ($, on) => {
   engine(on, ['desktop'])
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true } as never)
   await $.tool.call({ tool: 'Read', file_path: 'src/cave.js' } as never)
 
-  for (const [component, props] of [['Pane', PANE_PROPS], ['AbovePrompt', BAND_PROPS]] as const) {
-    const ui = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component, requestId: 'mod-monitor', props } as never)
-    expect(await ui.find({ type: 'Text', text: /Reading cave\.js/ })).toBeUndefined()
-    expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
-    await ui.unmount()
-  }
+  const band = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await band.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'opus-5-5' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /waiting for first reply/ })).toBeDefined()
+  // None of the terminal card's hand-drawn edges.
+  expect(await band.find({ type: 'Text', text: /[╭╰│]/ })).toBeUndefined()
+  await band.unmount()
+
+  const pane = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component: 'Pane', requestId: 'mod-monitor', props: PANE_PROPS })
+  expect((await pane.find({ type: 'Text' }))?.text).toBe('engine')
+  await pane.unmount()
+})
+
+test('where nothing draws (-p), the mod stays out of the way', async ($, on) => {
+  engine(on, [])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: false } as never)
+  await $.tool.call({ tool: 'Read', file_path: 'src/cave.js' } as never)
+
+  const band = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND_PROPS })
+  expect((await band.find({ type: 'Text' }))?.text).toBe('engine')
+  await band.unmount()
+})
+
+test('desktop drawings: meter and sparkline SVGs', () => {
+  const meter = meterSvg(62, 88, '#000', 48)
+  expect(meter).toContain('width="55"')
+  expect(meter).toContain('x="41"')
+  expect(meterSvg(0, 88, '#000', null)).not.toContain('fill="#000"')
+  expect(sparkSvg([{ at: 0, percent: 10 }], 0, 120, 20, '#000')).toBeNull()
+  const spark = sparkSvg([{ at: -60 * 60_000, percent: 10 }, { at: 0, percent: 20 }], 0, 120, 20, '#000')
+  expect(spark).toContain('points="0.0,18.0 120.0,2.0"')
 })
