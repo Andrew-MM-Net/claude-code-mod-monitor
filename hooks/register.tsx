@@ -70,6 +70,9 @@ const toMeter = (u: SessionUsage | SessionMeasureInput): Meter => ({
 })
 
 export const register: Register = on => {
+  // Only run in the terminal CLI (claude.exe), not the desktop app or other hosts.
+  // Set once in session.start: the REPL's terminal surface is there from the start.
+  let active = false
   let turnStart = 0
   let startedAt = 0
   // Recent 5h readings, for the "full in" forecast.
@@ -84,6 +87,8 @@ export const register: Register = on => {
   }
 
   on('session.start', async ($, e, next) => {
+    active = (await $.session.surfaces()).includes('terminal')
+    if (!active) return next(e)
     await $.command.register({
       name: 'monitor',
       description: 'Open the monitor pane. "/monitor off" or "/monitor on" turns the AI turn summary off or on.',
@@ -113,13 +118,14 @@ export const register: Register = on => {
   })
 
   on('session.measure', async ($, e, next) => {
+    if (!active) return next(e)
     sample(toMeter(e), await $.clock.now())
     await update($, meter, () => toMeter(e))
     return next(e)
   })
 
   on('prompt.submit', async ($, e, next) => {
-    if (e.turnId === undefined) {
+    if (active && e.turnId === undefined) {
       turnStart = await $.clock.now()
       await update($, goal, () => clip(e.text, 200))
     }
@@ -127,6 +133,7 @@ export const register: Register = on => {
   })
 
   on('tool.call', async ($, e, next) => {
+    if (!active) return next(e)
     const args = e as unknown as Record<string, unknown>
     const text = (e.agentId ? '↳ ' : '') + describe(String(e.tool), args)
     const item: Activity = { id: e.tool_use_id, at: await $.clock.now(), text, state: 'running' }
@@ -141,7 +148,7 @@ export const register: Register = on => {
   })
 
   on('turn.complete', async ($, e, next) => {
-    if (!e.agentId) {
+    if (active && !e.agentId) {
       await update($, now, () => null)
       const answer = e.answer
       // Summarize off the turn's own dispatch, so the turn ends right away.
@@ -172,7 +179,7 @@ export const register: Register = on => {
   })
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
-    if (e.props.hasSurvey) return next(e)
+    if (!active || e.surface !== 'terminal' || e.props.hasSurvey) return next(e)
     const { Box, Text } = $.ui.resolve(e)
     await read($, tick)
     const m = await read($, meter)
@@ -322,7 +329,8 @@ export const register: Register = on => {
     )
   })
 
-  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e) => {
+  on('ui.render', { component: 'Pane', requestId: PANE }, async ($, e, next) => {
+    if (!active || e.surface !== 'terminal') return next(e)
     const { Box, Text } = $.ui.resolve(e)
     const asked = await read($, goal)
     const said = await read($, summary)

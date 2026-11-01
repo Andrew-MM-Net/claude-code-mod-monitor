@@ -78,25 +78,50 @@ describe('helpers', () => {
   })
 })
 
-test('a tool call shows in the activity pane and as "now" in the band', async ($, on) => {
+// Stands in for the engine for a session drawn on `surfaces`.
+const engine = (on: Parameters<Parameters<typeof test>[1]>[1], surfaces: string[]) => {
   mock.clock(on)
-  // Stands in for the engine: the tool answers at once.
+  on('session.surfaces', () => ({ value: surfaces }) as never)
+  on('session.start', (_, e) => ({ cwd: e.cwd }) as never)
+  on('session.usage', () => ({ value: { startedAt: 0, rateLimits: [], context: { percent: 0, tokens: 0, window: 200_000 } } }) as never)
+  on('command.register', () => ({ value: { command: 'monitor' } }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('tool.call', async () => ({ result: 'ok' }) as never)
   on('session.model', async () => ({ value: 'claude-opus-5-5' }))
+  // What the engine draws when the mod leaves a drawing to it.
+  on('ui.render', ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    return <Text>engine</Text>
+  })
+}
 
-  for (const surface of ['terminal', 'desktop'] as const) {
-    await $.tool.call({ tool: 'Read', file_path: 'src/cave.js' } as never)
+test('in the CLI, a tool call shows in the activity pane and as "now" in the band', async ($, on) => {
+  engine(on, ['terminal'])
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
+  await $.tool.call({ tool: 'Read', file_path: 'src/cave.js' } as never)
 
-    const pane = await $.ui.mount({ plugin: 'mod-monitor', surface, component: 'Pane', requestId: 'mod-monitor', props: PANE_PROPS })
-    expect(await pane.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()
-    expect(await pane.find({ type: 'Text', text: /opus-5-5/ })).toBeUndefined()
-    await pane.unmount()
+  const pane = await $.ui.mount({ plugin: 'mod-monitor', surface: 'terminal', component: 'Pane', requestId: 'mod-monitor', props: PANE_PROPS })
+  expect(await pane.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: /opus-5-5/ })).toBeUndefined()
+  await pane.unmount()
 
-    const band = await $.ui.mount({ plugin: 'mod-monitor', surface, component: 'AbovePrompt', props: BAND_PROPS })
-    expect(await band.find({ type: 'Text', text: /waiting for first reply/ })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: 'opus-5-5' })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()
-    expect(await band.find({ type: 'Text', text: ' monitor ' })).toBeDefined()
-    await band.unmount()
+  const band = await $.ui.mount({ plugin: 'mod-monitor', surface: 'terminal', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await band.find({ type: 'Text', text: /waiting for first reply/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'opus-5-5' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: /Reading cave\.js/ })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' monitor ' })).toBeDefined()
+  await band.unmount()
+})
+
+test('in the desktop app, the mod stays out of the way', async ($, on) => {
+  engine(on, ['desktop'])
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true } as never)
+  await $.tool.call({ tool: 'Read', file_path: 'src/cave.js' } as never)
+
+  for (const [component, props] of [['Pane', PANE_PROPS], ['AbovePrompt', BAND_PROPS]] as const) {
+    const ui = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component, requestId: 'mod-monitor', props } as never)
+    expect(await ui.find({ type: 'Text', text: /Reading cave\.js/ })).toBeUndefined()
+    expect((await ui.find({ type: 'Text' }))?.text).toBe('engine')
+    await ui.unmount()
   }
 })
