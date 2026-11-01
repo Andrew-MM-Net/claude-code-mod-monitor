@@ -8,6 +8,7 @@ declare module 'claude-code' {
       meter: Meter | null
       now: string | null
       feed: Activity[]
+      steps: number
       goal: string | null
       summary: string | null
       isSummarizing: boolean

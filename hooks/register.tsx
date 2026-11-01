@@ -60,6 +60,8 @@ const meterSegs = (percent: number, width: number, color: Color, mark: number | 
 const meter = atom({ plugin: 'mod-monitor', key: 'meter' } as const, null)
 const now = atom({ plugin: 'mod-monitor', key: 'now' } as const, null)
 const feed = atom({ plugin: 'mod-monitor', key: 'feed' } as const, [])
+// Every tool call this session; the feed keeps only the latest 60.
+const steps = atom({ plugin: 'mod-monitor', key: 'steps' } as const, 0)
 const goal = atom({ plugin: 'mod-monitor', key: 'goal' } as const, null)
 const summary = atom({ plugin: 'mod-monitor', key: 'summary' } as const, null)
 const isSummarizing = atom({ plugin: 'mod-monitor', key: 'isSummarizing' } as const, false)
@@ -169,6 +171,7 @@ export const register: Register = on => {
     const item: Activity = { id: e.tool_use_id, at: await $.clock.now(), text, state: 'running' }
     if (!e.agentId) await update($, now, () => text)
     await update($, feed, list => [...list, item].slice(-60))
+    await update($, steps, n => n + 1)
 
     const ran = await next(e)
 
@@ -547,6 +550,7 @@ export const register: Register = on => {
     const busy = await read($, isSummarizing)
     const isOn = await read($, isSummaryOn)
     const list = await read($, feed)
+    const total = await read($, steps)
     const room = Math.max(3, e.props.scroll.bodyRows - 9)
     const heading = (icon: string, label: string, color: Color, note?: string) => (
       <Text wrap="truncate-end">
@@ -567,7 +571,7 @@ export const register: Register = on => {
           {isOn ? (said ?? 'Appears after the first turn finishes.') : 'Off. Type /monitor on to turn it back on.'}
         </Text>
         <Text> </Text>
-        {heading('▶', 'ACTIVITY', 'claude', list.length ? `${list.length} steps` : undefined)}
+        {heading('▶', 'ACTIVITY', 'claude', total ? `${total} steps` : undefined)}
         {list.length === 0 && <Text dimColor>No tool calls yet.</Text>}
         {list.slice(-room).map(a => (
           <Text
