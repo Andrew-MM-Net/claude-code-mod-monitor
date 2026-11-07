@@ -7,7 +7,7 @@ A Claude Code mod that keeps an eye on your session: subscription limit meters, 
 ### The card above the prompt
 
 ```
-╭─ monitor ───────────────────────────────────────────────────────────── opus-5-5 ──╮
+╭─ monitor ─────────────────────── ⎇ main ↑1 ±2 · owner/repo ──────────── opus-5-5 ──╮
 │ 5h ██████┃▌░░░  52% ● 2h13m │ 7d ███┃░░░░░░  28% ▼ 3d4h │ ctx ██░░ 31% │ $1.84 │   │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │ ● Running: Run tests  1m05s                                                        │
@@ -22,12 +22,14 @@ A Claude Code mod that keeps an eye on your session: subscription limit meters, 
 - **5h forecast**: when the 5-hour limit is climbing, roughly when it will be full at the current pace (only shown if that's before it resets).
 - **Status line**: what Claude is doing right now while it works, and the AI summary of the last turn once it's done.
 - The current **model** in the top edge.
+- **Git** in the top edge: the branch, commits ahead (`↑`) and behind (`↓`) its upstream, changed files (`±`) and the `origin` remote. On a narrow card the remote is dropped first.
 
 The card adapts to the terminal width, dropping the less important stats first.
 
 ### The Monitor pane
 
 - **TASK**: the last thing you asked.
+- **GIT**: the branch and the upstream it tracks, ahead/behind or in sync, how many files are changed, and the full `origin` URL. Hidden outside a git repository.
 - **SUMMARY**: a one- or two-sentence summary of what was just done, written by Haiku after each turn.
 - **ACTIVITY**: every tool call in plain language ("Reading register.tsx", "Searching the web: …", "Using Gmail: search threads"), marked running, done or failed. Calls made by helper agents are indented with `↳`.
 

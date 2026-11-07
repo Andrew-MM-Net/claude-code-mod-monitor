@@ -105,6 +105,42 @@ export const rule = (char: string, count: number): string => char.repeat(Math.ma
 // Spaces that fill a card row out to `inner` cells, given what it already holds.
 export const fill = (used: number, inner: number): string => rule(' ', inner - used)
 
+export type GitStatus = { branch: string; upstream: string | null; ahead: number; behind: number; changed: number }
+
+// `git status --porcelain=v2 --branch` read as the branch, its upstream, how far
+// ahead and behind it is, and how many paths are changed or untracked.
+export const parseGitStatus = (out: string): GitStatus | null => {
+  let oid = ''
+  let head = ''
+  let upstream: string | null = null
+  let ahead = 0
+  let behind = 0
+  let changed = 0
+  for (const line of out.split(/\r?\n/)) {
+    if (!line) continue
+    if (line.startsWith('# branch.oid ')) oid = line.slice(13)
+    else if (line.startsWith('# branch.head ')) head = line.slice(14)
+    else if (line.startsWith('# branch.upstream ')) upstream = line.slice(18)
+    else if (line.startsWith('# branch.ab ')) {
+      const ab = /\+(\d+) -(\d+)/.exec(line)
+      if (ab) {
+        ahead = Number(ab[1])
+        behind = Number(ab[2])
+      }
+    } else if (!line.startsWith('#')) changed++
+  }
+  if (!head) return null
+  const branch = head === '(detached)' ? `@${oid.slice(0, 7)}` : head
+  return { branch, upstream, ahead, behind, changed }
+}
+
+// A remote URL as the card shows it: "owner/repo" on GitHub, "host/owner/repo" elsewhere.
+export const remoteLabel = (url: string): string => {
+  const m = /^(?:[a-z][a-z0-9+.-]*:\/\/)?(?:[^@/]+@)?([^/:]+)(?::\d+(?=\/))?[:/](.+?)(?:\.git)?\/?$/i.exec(url.trim())
+  if (!m || m[1]!.length === 1) return url // no host, or a Windows drive path
+  return m[1] === 'github.com' ? m[2]! : `${m[1]}/${m[2]}`
+}
+
 // Time since the turn began: "12s", "3m05s".
 export const elapsed = (ms: number): string => {
   const secs = Math.max(0, Math.floor(ms / 1000))

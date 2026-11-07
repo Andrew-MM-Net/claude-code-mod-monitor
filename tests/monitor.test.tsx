@@ -1,7 +1,17 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { TestBody } from 'claude-code/testing'
 
-import { bar, countdown, describe as describeCall, elapsed, expectedPercent, fill, forecast, levelColor, limitLabel, meterSvg, modelLabel, paceOf, rule, sparkSvg, tokens } from '../hooks/lib'
+import { bar, countdown, describe as describeCall, elapsed, expectedPercent, fill, forecast, levelColor, limitLabel, meterSvg, modelLabel, paceOf, parseGitStatus, remoteLabel, rule, sparkSvg, tokens } from '../hooks/lib'
+
+const GIT_STATUS = [
+  '# branch.oid 5d58157aa0b1c2d3e4f5',
+  '# branch.head main',
+  '# branch.upstream origin/main',
+  '# branch.ab +2 -1',
+  '1 .M N... 100644 100644 100644 aaa bbb hooks/lib.ts',
+  '? x-launchpad.py',
+  '',
+].join('\n')
 
 const PANE_PROPS = {
   title: 'Monitor',
@@ -139,6 +149,62 @@ test('where nothing draws (-p), the mod stays out of the way', async ($, on) => 
 
   const band = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND_PROPS })
   expect((await band.find({ type: 'Text' }))?.text).toBe('engine')
+  await band.unmount()
+})
+
+test('git status and remotes read as the card shows them', () => {
+  expect(parseGitStatus(GIT_STATUS)).toEqual({ branch: 'main', upstream: 'origin/main', ahead: 2, behind: 1, changed: 2 })
+  expect(parseGitStatus('# branch.oid 5d58157aa0b1\n# branch.head (detached)\n')).toEqual({
+    branch: '@5d58157',
+    upstream: null,
+    ahead: 0,
+    behind: 0,
+    changed: 0,
+  })
+  expect(parseGitStatus('')).toBeNull()
+  expect(remoteLabel('https://github.com/Andrew-MM-Net/claude-code-mod-monitor.git')).toBe('Andrew-MM-Net/claude-code-mod-monitor')
+  expect(remoteLabel('git@github.com:owner/repo.git')).toBe('owner/repo')
+  expect(remoteLabel('ssh://git@gitlab.example.com:2222/team/app.git')).toBe('gitlab.example.com/team/app')
+  expect(remoteLabel('D:\\repos\\app')).toBe('D:\\repos\\app')
+})
+
+test('in the CLI, the card edge and the pane show the branch and remote', async ($, on) => {
+  engine(on, ['terminal'])
+  on('process.run', () => ({ value: { exitCode: 0, stdout: GIT_STATUS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) as never)
+  on('session.repo', () => ({ value: { root: '/', remote: 'https://github.com/owner/repo.git', internal: false, name: null } }) as never)
+  await $.session.start({ cwd: '/', surface: 'terminal', isInteractive: true } as never)
+  await $.tool.call({ tool: 'Bash', command: 'git status' } as never)
+
+  const band = await $.ui.mount({ plugin: 'mod-monitor', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND_PROPS, bodyColumns: 120 } })
+  expect(await band.find({ type: 'Text', text: 'main' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' ↑2' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: 'owner/repo' })).toBeDefined()
+  await band.unmount()
+
+  // A narrow card keeps the branch and drops the remote.
+  const narrow = await $.ui.mount({ plugin: 'mod-monitor', surface: 'terminal', component: 'AbovePrompt', props: { ...BAND_PROPS, bodyColumns: 50 } })
+  expect(await narrow.find({ type: 'Text', text: 'main' })).toBeDefined()
+  expect(await narrow.find({ type: 'Text', text: 'owner/repo' })).toBeUndefined()
+  await narrow.unmount()
+
+  const pane = await $.ui.mount({ plugin: 'mod-monitor', surface: 'terminal', component: 'Pane', requestId: 'mod-monitor', props: PANE_PROPS })
+  expect(await pane.find({ type: 'Text', text: /GIT/ })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: ' → origin/main' })).toBeDefined()
+  expect(await pane.find({ type: 'Text', text: 'origin https://github.com/owner/repo.git' })).toBeDefined()
+  await pane.unmount()
+})
+
+test('in the desktop app, the band shows the branch and remote', async ($, on) => {
+  engine(on, ['desktop'])
+  on('process.run', () => ({ value: { exitCode: 0, stdout: GIT_STATUS, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }) as never)
+  on('session.repo', () => ({ value: { root: '/', remote: 'git@github.com:owner/repo.git', internal: false, name: null } }) as never)
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true } as never)
+  await $.tool.call({ tool: 'Bash', command: 'git status' } as never)
+
+  const band = await $.ui.mount({ plugin: 'mod-monitor', surface: 'desktop', component: 'AbovePrompt', props: BAND_PROPS })
+  expect(await band.find({ type: 'Text', text: 'main' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' ↑2' })).toBeDefined()
+  expect(await band.find({ type: 'Text', text: ' · owner/repo' })).toBeDefined()
   await band.unmount()
 })
 

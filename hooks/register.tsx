@@ -1,8 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { Color, Elements, EngineInterface, Register, SessionMeasureInput, SessionUsage } from 'claude-code'
 
-import type { Activity, Meter } from '../types'
+import type { Activity, GitInfo, Meter } from '../types'
 import {
+  parseGitStatus,
+  remoteLabel,
   bar,
   clip,
   countdown,
@@ -67,6 +69,31 @@ const summary = atom({ plugin: 'mod-monitor', key: 'summary' } as const, null)
 const isSummarizing = atom({ plugin: 'mod-monitor', key: 'isSummarizing' } as const, false)
 const isSummaryOn = atom({ plugin: 'mod-monitor', key: 'isSummaryOn' } as const, true)
 const tick = atom({ plugin: 'mod-monitor', key: 'tick' } as const, 0)
+const git = atom({ plugin: 'mod-monitor', key: 'git' } as const, null)
+
+// Tools after which the branch or the changed files may have moved.
+const GIT_TOOLS = new Set(['Bash', 'PowerShell', 'Edit', 'MultiEdit', 'Write', 'NotebookEdit'])
+
+// The working copy's branch, upstream, ahead/behind, changed paths and origin
+// remote; null outside a repository or when git can't run.
+async function readGit($: EngineInterface): Promise<GitInfo | null> {
+  try {
+    const st = await $.process.run(['git', '--no-optional-locks', 'status', '--porcelain=v2', '--branch'], { timeoutMs: 5000 })
+    const parsed = st.exitCode === 0 ? parseGitStatus(st.stdout) : null
+    if (!parsed) return null
+    const repo = await $.session.repo().catch(() => null)
+    return { ...parsed, remote: repo?.remote ?? null }
+  } catch {
+    return null
+  }
+}
+
+// Re-reads git and stores it only when something changed, so idle refreshes don't redraw.
+async function refreshGit($: EngineInterface) {
+  const next = await readGit($)
+  const prev = await read($, git)
+  if (JSON.stringify(prev) !== JSON.stringify(next)) await update($, git, () => next)
+}
 
 const toMeter = (u: SessionUsage | SessionMeasureInput): Meter => ({
   limits: u.rateLimits.map(l => ({ kind: l.kind, percent: l.percentUsed, resetsAt: l.resetsAt })),
@@ -83,8 +110,10 @@ function startTracking($: EngineInterface, onUsage: (u: SessionUsage, at: number
     onUsage(u, await $.clock.now())
     await update($, meter, () => toMeter(u))
   })
+  void refreshGit($)
   $.clock.every(60_000, () => {
     void update($, tick, n => n + 1)
+    void refreshGit($)
   })
 }
 
@@ -177,6 +206,7 @@ export const register: Register = on => {
 
     const state: Activity['state'] = ran.deny !== undefined || ran.isError ? 'error' : 'done'
     await update($, feed, list => list.map(a => (a.id === item.id ? { ...a, state } : a)))
+    if (GIT_TOOLS.has(String(e.tool))) void refreshGit($)
     return ran
   })
 
@@ -224,6 +254,7 @@ export const register: Register = on => {
     isSummaryOn: boolean
     steps: number
     failed: number
+    git: GitInfo | null
     onToggleSummaries: () => void
   }
   const desktopBand = (els: Elements['desktop'], d: BandData) => {
@@ -367,6 +398,16 @@ export const register: Register = on => {
             </Text>
           )}
           <Box flexGrow={1} />
+          {d.git && (
+            <Text size="footnote" wrap="truncate-end">
+              <Text color="suggestion">⎇ </Text>
+              <Text color="suggestion" weight="semibold">{clip(d.git.branch, 32)}</Text>
+              {d.git.ahead > 0 && <Text color="warning">{` ↑${d.git.ahead}`}</Text>}
+              {d.git.behind > 0 && <Text color="warning">{` ↓${d.git.behind}`}</Text>}
+              {d.git.changed > 0 && <Text color="warning">{` ±${d.git.changed}`}</Text>}
+              {d.git.remote && <Text dimColor>{` · ${clip(remoteLabel(d.git.remote), 40)}`}</Text>}
+            </Text>
+          )}
           <Text color="success" weight="semibold" size="footnote">{d.model}</Text>
         </Box>
         {status}
@@ -397,6 +438,7 @@ export const register: Register = on => {
         isSummaryOn: await read($, isSummaryOn),
         steps: steps.length,
         failed: steps.filter(a => a.state === 'error').length,
+        git: await read($, git),
         onToggleSummaries: () => void update($, isSummaryOn, isOn => !isOn),
       })
     }
@@ -508,6 +550,25 @@ export const register: Register = on => {
             ]
           : null
 
+    // Git in the top edge: branch, ahead/behind, changed paths, then the remote,
+    // which is dropped first when the edge runs out of room.
+    const g = await read($, git)
+    const gitSegs = (withRemote: boolean): Seg[] =>
+      !g
+        ? []
+        : [
+            { text: ' ⎇ ', color: 'suggestion' },
+            { text: clip(g.branch, 32), color: 'suggestion', bold: true },
+            ...(g.ahead ? [{ text: ` ↑${g.ahead}`, color: 'warning' as Color }] : []),
+            ...(g.behind ? [{ text: ` ↓${g.behind}`, color: 'warning' as Color }] : []),
+            ...(g.changed ? [{ text: ` ±${g.changed}`, color: 'warning' as Color }] : []),
+            ...(withRemote && g.remote ? [{ text: ' · ', dim: true }, { text: clip(remoteLabel(g.remote), 40), dim: true }] : []),
+            { text: ' ' },
+          ]
+    // The rule left between the title and the git run (and the run after it, when there is one).
+    const spare = (segs: Seg[]) => cols - 16 - model.length - (segs.length ? widthOf(segs) + 2 : 0)
+    const edgeGit = [gitSegs(true), gitSegs(false)].find(segs => segs.length && spare(segs) >= 3) ?? []
+
     const row = (segs: Seg[]) => (
       <Text wrap="truncate-end">
         <Text color={EDGE}>│</Text>
@@ -528,7 +589,13 @@ export const register: Register = on => {
           <Text color="claude" bold>
             {' monitor '}
           </Text>
-          <Text color={EDGE}>{rule('─', cols - 16 - model.length)}</Text>
+          <Text color={EDGE}>{rule('─', spare(edgeGit))}</Text>
+          {edgeGit.map(s => (
+            <Text color={s.color} dimColor={s.dim} bold={s.bold}>
+              {s.text}
+            </Text>
+          ))}
+          {edgeGit.length > 0 && <Text color={EDGE}>──</Text>}
           <Text> </Text>
           <Text color="success" bold>{model}</Text>
           <Text> </Text>
@@ -551,7 +618,8 @@ export const register: Register = on => {
     const isOn = await read($, isSummaryOn)
     const list = await read($, feed)
     const total = await read($, steps)
-    const room = Math.max(3, e.props.scroll.bodyRows - 9)
+    const g = await read($, git)
+    const room = Math.max(3, e.props.scroll.bodyRows - 9 - (g ? (g.remote ? 4 : 3) : 0))
     const heading = (icon: string, label: string, color: Color, note?: string) => (
       <Text wrap="truncate-end">
         <Text color={color} bold>
@@ -566,6 +634,22 @@ export const register: Register = on => {
         {heading('◆', 'TASK', 'suggestion')}
         <Text wrap="wrap">{asked ?? 'Nothing asked yet.'}</Text>
         <Text> </Text>
+        {g && heading('⎇', 'GIT', 'suggestion', g.changed ? `${g.changed} changed` : 'clean')}
+        {g && (
+          <Text wrap="truncate-end">
+            <Text bold>{g.branch}</Text>
+            {g.upstream ? <Text dimColor>{` → ${g.upstream}`}</Text> : <Text dimColor> · no upstream</Text>}
+            {g.ahead > 0 && <Text color="warning">{`  ↑${g.ahead}`}</Text>}
+            {g.behind > 0 && <Text color="warning">{`  ↓${g.behind}`}</Text>}
+            {g.upstream && !g.ahead && !g.behind && <Text color="success">  ✓ in sync</Text>}
+          </Text>
+        )}
+        {g?.remote && (
+          <Text wrap="truncate-end" dimColor>
+            {`origin ${g.remote}`}
+          </Text>
+        )}
+        {g && <Text> </Text>}
         {heading('✦', 'SUMMARY', 'permission', busy ? 'updating…' : isOn ? undefined : 'off')}
         <Text wrap="wrap" dimColor={!said}>
           {isOn ? (said ?? 'Appears after the first turn finishes.') : 'Off. Type /monitor on to turn it back on.'}
